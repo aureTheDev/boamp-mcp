@@ -1,0 +1,25 @@
+registry:
+    boamp-mcp:
+        dateAdded: "2026-04-06T00:00:00Z"
+        description: Recherche d'appels d'offres BOAMP (marchés publics français)
+        image: boamp-mcp:latest
+        metadata:
+            category: data
+            owner: local
+            tags:
+                - boamp
+                - marches-publics
+                - france
+        prompts: 0
+        ref: ""
+        resources: {}
+        source: ""
+        title: BOAMP MCP
+        tools:
+            - name: search_avis
+            - name: get_avis
+            - name: search_by_cpv
+            - name: search_by_acheteur
+            - name: list_recent
+            - name: get_deadlines
+        type: server

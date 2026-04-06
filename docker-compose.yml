@@ -1,0 +1,10 @@
+services:
+  boamp-mcp:
+    build: .
+    image: boamp-mcp:latest
+    stdin_open: true
+    tty: false
+    restart: "no"
+    labels:
+      com.docker.mcp.name: "boamp-mcp"
+      com.docker.mcp.description: "Recherche d'appels d'offres BOAMP (marchés publics français)"

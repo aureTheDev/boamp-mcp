@@ -1,0 +1,25 @@
+{
+  "name": "boamp-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for BOAMP - French public procurement notices",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "boamp-mcp": "./build/index.js"
+  },
+  "files": ["build"],
+  "scripts": {
+    "build": "tsc && node -e \"import('fs').then(fs => fs.chmodSync('build/index.js', '755'))\"",
+    "dev": "tsc --watch",
+    "start": "node build/index.js",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.0",
+    "axios": "^1.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
+  }
+}
