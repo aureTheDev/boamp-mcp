@@ -115,11 +115,12 @@ function extractEnrichedFields(donnees: string): EnrichedFields {
     if (!result.duree_mois) {
       const lotsRawForDur = eforms["cac:ProcurementProjectLot"];
       const firstLotForDur = lotsRawForDur ? (Array.isArray(lotsRawForDur) ? lotsRawForDur[0] : lotsRawForDur) : null;
-      const dur = firstLotForDur?.["cac:PlannedPeriod"]?.["cbc:DurationMeasure"];
+      const dur = firstLotForDur?.["cac:ProcurementProject"]?.["cac:PlannedPeriod"]?.["cbc:DurationMeasure"];
       if (dur !== undefined) {
         const val = Number(typeof dur === "object" ? (dur["#text"] ?? dur._) : dur);
         const unit = typeof dur === "object" ? (dur["@unitCode"] ?? dur.unitCode) : undefined;
         if (!isNaN(val)) result.duree_mois = (unit === "ANN" || unit === "YEAR") ? val * 12 : val;
+        // MONTH or MON → direct value, default if no unit
       }
     }
 
