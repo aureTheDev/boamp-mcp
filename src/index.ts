@@ -95,10 +95,15 @@ function extractEnrichedFields(donnees: string): EnrichedFields {
       result.contact_tel = tv(company?.["cac:Contact"]?.["cbc:Telephone"]);
     }
 
-    // url_dossier from CallForTendersDocumentReference
+    // url_dossier — BuyerProfileURI first, then lot CallForTendersDocumentReference
     if (!result.url_dossier) {
-      const cftdr = findFirst(eforms, "cac:CallForTendersDocumentReference");
-      result.url_dossier = tv(cftdr?.["cbc:URI"]);
+      result.url_dossier = tv(findFirst(eforms, "cbc:BuyerProfileURI"));
+    }
+    if (!result.url_dossier) {
+      const lotsRawForUrl = eforms["cac:ProcurementProjectLot"];
+      const firstLot = lotsRawForUrl ? (Array.isArray(lotsRawForUrl) ? lotsRawForUrl[0] : lotsRawForUrl) : null;
+      const extRef = firstLot?.["cac:TenderingTerms"]?.["cac:CallForTendersDocumentReference"]?.["cac:Attachment"]?.["cac:ExternalReference"];
+      if (extRef) result.url_dossier = tv(extRef["cbc:URI"]);
     }
 
     // description from top-level ProcurementProject
@@ -106,13 +111,15 @@ function extractEnrichedFields(donnees: string): EnrichedFields {
       result.description = tv(eforms["cac:ProcurementProject"]?.["cbc:Description"]);
     }
 
-    // duree_mois — DurationMeasure with @unitCode or unitCode (MON/ANN)
+    // duree_mois — PlannedPeriod > DurationMeasure from first lot (MON/YEAR/ANN)
     if (!result.duree_mois) {
-      const dur = findFirst(eforms, "cbc:DurationMeasure");
+      const lotsRawForDur = eforms["cac:ProcurementProjectLot"];
+      const firstLotForDur = lotsRawForDur ? (Array.isArray(lotsRawForDur) ? lotsRawForDur[0] : lotsRawForDur) : null;
+      const dur = firstLotForDur?.["cac:PlannedPeriod"]?.["cbc:DurationMeasure"];
       if (dur !== undefined) {
         const val = Number(typeof dur === "object" ? (dur["#text"] ?? dur._) : dur);
         const unit = typeof dur === "object" ? (dur["@unitCode"] ?? dur.unitCode) : undefined;
-        if (!isNaN(val)) result.duree_mois = unit === "ANN" ? val * 12 : val;
+        if (!isNaN(val)) result.duree_mois = (unit === "ANN" || unit === "YEAR") ? val * 12 : val;
       }
     }
 
