@@ -58,7 +58,8 @@ export class BoampClient {
     }
 
     if (params.type) {
-      query.refine = `type_marche_facette:${params.type}`;
+      const typeMap: Record<string, string> = { SERVICES: "Services", TRAVAUX: "Travaux", FOURNITURES: "Fournitures" };
+      query.refine = `type_marche_facette:${typeMap[params.type] ?? params.type}`;
     }
 
     if (params.procedure) {
