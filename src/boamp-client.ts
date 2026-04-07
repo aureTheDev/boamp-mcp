@@ -2,13 +2,16 @@ import axios, { AxiosInstance } from "axios";
 import { BoampApiResponse, BoampRecord, SearchParams } from "./types.js";
 
 const BOAMP_API_URL =
-  "https://boamp-datadila.opendatasoft.com/api/explore/v2.1/catalog/datasets/boamp/records";
+  "https://www.boamp.fr/api/explore/v2.1/catalog/datasets/boamp/records";
 
 export class BoampClient {
   private http: AxiosInstance;
 
   constructor() {
-    this.http = axios.create({ baseURL: BOAMP_API_URL });
+    this.http = axios.create({
+      baseURL: BOAMP_API_URL,
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; boamp-mcp/1.0)" },
+    });
   }
 
   async search(params: SearchParams): Promise<BoampApiResponse> {
