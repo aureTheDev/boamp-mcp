@@ -18,6 +18,7 @@ const server = new McpServer({
 function formatAvis(a: BoampRecord): string {
   return [
     `ID: ${a.idweb}`,
+    `URL: https://www.boamp.fr/avis/detail/${a.idweb}`,
     `Objet: ${a.objet ?? "N/A"}`,
     `Acheteur: ${a.nomacheteur ?? "N/A"}`,
     `Département: ${a.code_departement ?? "N/A"}`,
@@ -57,20 +58,23 @@ server.tool(
 
 server.tool(
   "get_avis",
-  "Récupère le détail complet d'un avis par son identifiant BOAMP",
+  "Récupère le détail d'un avis par son identifiant BOAMP. Par défaut retourne les champs clés uniquement (minimal=true). Passer minimal=false pour inclure les données EFORMS complètes.",
   {
     idweb: z.string().describe("Identifiant de l'avis (ex: 24-123456)"),
+    minimal: z.boolean().optional().default(true).describe("Si true (défaut), retourne uniquement les champs essentiels. Si false, inclut les données EFORMS complètes."),
   },
-  async ({ idweb }) => {
+  async ({ idweb, minimal }) => {
     const avis = await client.getById(idweb);
-    const detail = [
+    const lines = [
       formatAvis(avis),
-      `\nNature: ${avis.nature_libelle ?? "N/A"}`,
+      `Nature: ${avis.nature_libelle ?? "N/A"}`,
       `Famille: ${avis.famille_libelle ?? "N/A"}`,
       `Fin diffusion: ${avis.datefindiffusion ?? "N/A"}`,
-      avis.donnees ? `\n--- Données complètes ---\n${JSON.stringify(JSON.parse(avis.donnees as string), null, 2)}` : "",
-    ].join("\n");
-    return { content: [{ type: "text", text: detail }] };
+    ];
+    if (!minimal && avis.donnees) {
+      lines.push(`\n--- Données complètes ---\n${JSON.stringify(JSON.parse(avis.donnees as string), null, 2)}`);
+    }
+    return { content: [{ type: "text", text: lines.join("\n") }] };
   }
 );
 
