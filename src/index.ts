@@ -13,6 +13,188 @@ const server = new McpServer({
   version: "1.0.0",
 });
 
+// ─── Enriched field extraction ───────────────────────────────────────────────
+
+interface EnrichedFields {
+  siret_acheteur?: string;
+  contact_email?: string;
+  contact_tel?: string;
+  url_dossier?: string;
+  description?: string;
+  duree_mois?: number;
+  lieu_execution?: string;
+  montant_estime?: number;
+  lots?: Array<{ id: string; titre: string; montant?: number }>;
+  pme_admis?: boolean;
+  reconductions?: number;
+  date_debut?: string;
+}
+
+// Navigate a dot-notation path in an object
+function nav(obj: any, path: string): any {
+  return path.split(".").reduce((o: any, k: string) => o?.[k], obj);
+}
+
+// Extract text value: handles EFORMS { "#text": "..." } pattern and plain values
+function tv(v: any): string | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === "object") {
+    const t = v["#text"];
+    return t !== undefined ? String(t) : undefined;
+  }
+  return String(v);
+}
+
+// Recursively find first occurrence of a key in an object tree
+function findFirst(obj: any, key: string): any {
+  if (!obj || typeof obj !== "object") return undefined;
+  if (key in obj) return obj[key];
+  for (const v of Object.values(obj)) {
+    const r = findFirst(v, key);
+    if (r !== undefined) return r;
+  }
+  return undefined;
+}
+
+function extractEnrichedFields(donnees: string): EnrichedFields {
+  let d: any;
+  try { d = JSON.parse(donnees); } catch { return {}; }
+
+  const result: EnrichedFields = {};
+  const fn = d?.FNSimple;
+  // EFORMS root can be ContractNotice, PriorInformationNotice, ContractAwardNotice, etc.
+  const eforms = d?.EFORMS ? (Object.values(d.EFORMS)[0] as any) : null;
+
+  // ── FN Simple ──
+  if (fn) {
+    result.siret_acheteur = fn?.organisme?.codeIdentificationNational;
+    result.contact_email = nav(fn, "initial.communication.nomContact");
+    result.contact_tel = nav(fn, "initial.communication.telContact");
+    result.url_dossier = nav(fn, "initial.communication.urlDocConsul");
+    result.description = nav(fn, "initial.natureMarche.description");
+    const dm = nav(fn, "initial.natureMarche.dureeMois");
+    if (dm !== undefined) result.duree_mois = Number(dm);
+    result.lieu_execution = nav(fn, "initial.natureMarche.lieuExecution");
+  }
+
+  // ── EFORMS ──
+  if (eforms) {
+    // Organization info (SIRET, contact) — nested in efac:Organizations
+    const orgsRoot = findFirst(eforms, "efac:Organizations");
+    const orgsRaw = orgsRoot?.["efac:Organization"];
+    const orgArray: any[] = orgsRaw ? (Array.isArray(orgsRaw) ? orgsRaw : [orgsRaw]) : [];
+    const company = orgArray[0]?.["efac:Company"];
+
+    if (!result.siret_acheteur) {
+      result.siret_acheteur = tv(company?.["cac:PartyLegalEntity"]?.["cbc:CompanyID"]);
+    }
+    if (!result.contact_email) {
+      result.contact_email = tv(company?.["cac:Contact"]?.["cbc:ElectronicMail"]);
+    }
+    if (!result.contact_tel) {
+      result.contact_tel = tv(company?.["cac:Contact"]?.["cbc:Telephone"]);
+    }
+
+    // url_dossier from CallForTendersDocumentReference
+    if (!result.url_dossier) {
+      const cftdr = findFirst(eforms, "cac:CallForTendersDocumentReference");
+      result.url_dossier = tv(cftdr?.["cbc:URI"]);
+    }
+
+    // description from top-level ProcurementProject
+    if (!result.description) {
+      result.description = tv(eforms["cac:ProcurementProject"]?.["cbc:Description"]);
+    }
+
+    // duree_mois — DurationMeasure with @unitCode or unitCode (MON/ANN)
+    if (!result.duree_mois) {
+      const dur = findFirst(eforms, "cbc:DurationMeasure");
+      if (dur !== undefined) {
+        const val = Number(typeof dur === "object" ? (dur["#text"] ?? dur._) : dur);
+        const unit = typeof dur === "object" ? (dur["@unitCode"] ?? dur.unitCode) : undefined;
+        if (!isNaN(val)) result.duree_mois = unit === "ANN" ? val * 12 : val;
+      }
+    }
+
+    // lieu_execution — prefer cac:RealizedLocation, fallback to first city found
+    if (!result.lieu_execution) {
+      const rl = findFirst(eforms, "cac:RealizedLocation");
+      const city = tv(rl?.["cbc:CityName"]) ?? tv(findFirst(eforms, "cbc:CityName"));
+      const postal = tv(rl?.["cbc:PostalZone"]) ?? tv(findFirst(eforms, "cbc:PostalZone"));
+      if (city) result.lieu_execution = postal ? `${city} ${postal}` : city;
+    }
+
+    // montant_estime — top-level RequestedTenderTotal
+    const montant = findFirst(eforms, "cbc:EstimatedOverallContractAmount");
+    if (montant !== undefined) {
+      const val = Number(typeof montant === "object" ? (montant["#text"] ?? montant._) : montant);
+      if (!isNaN(val)) result.montant_estime = val;
+    }
+
+    // lots
+    const lotsRaw = eforms["cac:ProcurementProjectLot"];
+    if (lotsRaw) {
+      const lotArray: any[] = Array.isArray(lotsRaw) ? lotsRaw : [lotsRaw];
+      result.lots = lotArray
+        .map((lot: any) => {
+          const lotProj = lot["cac:ProcurementProject"];
+          const lotMontant = findFirst(lot, "cbc:EstimatedOverallContractAmount");
+          const montantVal = lotMontant !== undefined
+            ? Number(typeof lotMontant === "object" ? (lotMontant["#text"] ?? lotMontant._) : lotMontant)
+            : undefined;
+          return {
+            id: tv(lot["cbc:ID"]) ?? "",
+            titre: tv(lotProj?.["cbc:Name"]) ?? tv(lotProj?.["cbc:Description"]) ?? "",
+            montant: montantVal !== undefined && !isNaN(montantVal) ? montantVal : undefined,
+          };
+        })
+        .filter((l) => l.id);
+    }
+
+    // pme_admis
+    const sme = findFirst(eforms, "cbc:SMESuitableIndicator");
+    if (sme !== undefined) {
+      result.pme_admis = sme === "true" || sme === true || tv(sme) === "true";
+    }
+
+    // reconductions
+    const maxRenew = findFirst(eforms, "cbc:MaximumNumberNumeric");
+    if (maxRenew !== undefined) {
+      const val = Number(typeof maxRenew === "object" ? (maxRenew["#text"] ?? maxRenew._) : maxRenew);
+      if (!isNaN(val)) result.reconductions = val;
+    }
+
+    // date_debut
+    const startDate = findFirst(eforms, "cbc:StartDate");
+    if (startDate !== undefined) result.date_debut = tv(startDate) ?? String(startDate);
+  }
+
+  return result;
+}
+
+function formatEnriched(e: EnrichedFields): string {
+  const lines: string[] = [];
+  if (e.siret_acheteur) lines.push(`SIRET acheteur: ${e.siret_acheteur}`);
+  if (e.contact_email) lines.push(`Contact email: ${e.contact_email}`);
+  if (e.contact_tel) lines.push(`Contact tél: ${e.contact_tel}`);
+  if (e.url_dossier) lines.push(`URL dossier: ${e.url_dossier}`);
+  if (e.description) lines.push(`Description: ${e.description}`);
+  if (e.duree_mois !== undefined) lines.push(`Durée: ${e.duree_mois} mois`);
+  if (e.lieu_execution) lines.push(`Lieu d'exécution: ${e.lieu_execution}`);
+  if (e.montant_estime !== undefined) lines.push(`Montant estimé: ${e.montant_estime.toLocaleString("fr-FR")} €`);
+  if (e.lots?.length) {
+    lines.push(`Lots (${e.lots.length}):`);
+    for (const lot of e.lots) {
+      const m = lot.montant !== undefined ? ` — ${lot.montant.toLocaleString("fr-FR")} €` : "";
+      lines.push(`  ${lot.id}: ${lot.titre}${m}`);
+    }
+  }
+  if (e.pme_admis !== undefined) lines.push(`PME admis: ${e.pme_admis ? "Oui" : "Non"}`);
+  if (e.reconductions !== undefined) lines.push(`Reconductions max: ${e.reconductions}`);
+  if (e.date_debut) lines.push(`Date début: ${e.date_debut}`);
+  return lines.join("\n");
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function formatAvis(a: BoampRecord): string {
@@ -58,10 +240,10 @@ server.tool(
 
 server.tool(
   "get_avis",
-  "Récupère le détail d'un avis par son identifiant BOAMP. Par défaut retourne les champs clés uniquement (minimal=true). Passer minimal=false pour inclure les données EFORMS complètes.",
+  "Récupère le détail d'un avis par son identifiant BOAMP. Par défaut (minimal=true) retourne les champs essentiels enrichis (SIRET, contact, URL dossier, description, durée, lieu, montant, lots). Passer minimal=false pour inclure les données brutes complètes.",
   {
     idweb: z.string().describe("Identifiant de l'avis (ex: 24-123456)"),
-    minimal: z.boolean().optional().default(true).describe("Si true (défaut), retourne uniquement les champs essentiels. Si false, inclut les données EFORMS complètes."),
+    minimal: z.boolean().optional().default(true).describe("Si true (défaut), retourne les champs enrichis clés. Si false, inclut aussi les données brutes complètes."),
   },
   async ({ idweb, minimal }) => {
     const avis = await client.getById(idweb);
@@ -71,6 +253,11 @@ server.tool(
       `Famille: ${avis.famille_libelle ?? "N/A"}`,
       `Fin diffusion: ${avis.datefindiffusion ?? "N/A"}`,
     ];
+    if (avis.donnees) {
+      const enriched = extractEnrichedFields(avis.donnees as string);
+      const enrichedText = formatEnriched(enriched);
+      if (enrichedText) lines.push(`\n--- Données enrichies ---\n${enrichedText}`);
+    }
     if (!minimal && avis.donnees) {
       lines.push(`\n--- Données complètes ---\n${JSON.stringify(JSON.parse(avis.donnees as string), null, 2)}`);
     }
