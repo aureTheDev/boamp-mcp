@@ -24,7 +24,12 @@ export class BoampClient {
     }
 
     if (params.cpv) {
-      conditions.push(`descripteur_libelle LIKE '%${params.cpv}%'`);
+      const isCpvCode = /^\d+$/.test(params.cpv.trim());
+      if (isCpvCode) {
+        conditions.push(`donnees LIKE '%${params.cpv.trim()}%'`);
+      } else {
+        conditions.push(`descripteur_libelle LIKE '%${params.cpv}%'`);
+      }
     }
 
     if (params.acheteur) {

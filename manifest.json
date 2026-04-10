@@ -1,0 +1,27 @@
+{
+  "manifest_version": "0.4",
+  "name": "boamp-mcp",
+  "display_name": "BOAMP — Marchés publics français",
+  "version": "1.0.0",
+  "icon": "icon.png",
+  "description": "Recherche et consultation des appels d'offres du Bulletin Officiel des Annonces des Marchés Publics (BOAMP)",
+  "author": {
+    "name": "aureTheDev"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "build/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/build/index.js"]
+    }
+  },
+  "tools": [
+    { "name": "search_avis", "description": "Rechercher des appels d'offres par mots-clés, département, type de marché et dates" },
+    { "name": "get_avis", "description": "Obtenir le détail complet d'un avis BOAMP par son identifiant (contact, URL dossier, lots, montant...)" },
+    { "name": "search_by_cpv", "description": "Rechercher des marchés publics par code ou libellé CPV" },
+    { "name": "search_by_acheteur", "description": "Retrouver les appels d'offres publiés par un acheteur (nom ou SIRET)" },
+    { "name": "list_recent", "description": "Lister les derniers appels d'offres publiés récemment" },
+    { "name": "get_deadlines", "description": "Lister les appels d'offres dont la date limite de réponse approche dans N jours" }
+  ]
+}
